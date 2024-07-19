@@ -11,22 +11,15 @@ import pandas as pd
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-#Getting HTML
-import requests
-from requests_html import HTMLSession
+
+import pickle as pkl
 
 #Parsing HTML
-from bs4 import BeautifulSoup
-import urllib
-import json
-import re
-
 import time 
 import pandas as pd 
 from selenium import webdriver 
 from selenium.webdriver import Safari 
 from selenium.webdriver.common.by import By 
-import pickle as pkl
 
 from encryption import decrypt_password
 
@@ -35,14 +28,15 @@ def main():
 
     #We need to let JS load in the additional elements on the page, so we add the headless argument and other config
     options = webdriver.SafariOptions()
+    options.add_argument("--disable-gpu")
     options.add_argument("--headless")
     options.page_load_strategy = "none"
     driver = Safari(options=options) 
-    driver.implicitly_wait(60)
+    driver.implicitly_wait(10)
 
     #Get the url data and wait https://www.zenrows.com/blog/scraping-javascript-rendered-web-pages#requirements
     driver.get(url)
-    time.sleep(60) 
+    time.sleep(10) 
 
 
     #To verify that the elements loaded with JS are actually there, we will verify that the header "Internships" is been pulled in
@@ -53,9 +47,11 @@ def main():
         print("No! Flagging Error")
         raise
 
-    #Find the elements that contain the word 'Internship'. NOTE: This will include elements that are not what we are looking for. 
+    #Find the elements that contain the word 'Internship'. NOTE: This will include elements that are not what we are looking for.
+    new_grad = driver.find_elements(by = By.XPATH, value = r"//*[contains(text(), 'New Grad')]")
+    
     content = driver.find_elements(by = By.XPATH, value = r"//*[contains(text(), 'Internship')]")
-    print("Internships were found")
+    print("Internships section was found!")
 
     #Edge case for the special "Semester at Palantir" co-op
     try:
@@ -86,8 +82,8 @@ def main():
             job_name_list.append(job_name)
 
     #Pull yesterday's jobs
-    with open("yesterdays_jobs.txt", "r") as f:
-        yesterdays_jobs = f.readlines()
+    with open("yesterdays_jobs.pkl", "rb") as f:
+        yesterdays_jobs = pkl.load(f)
     
     yesterdays_jobs = set(yesterdays_jobs)
 
@@ -96,17 +92,20 @@ def main():
     for job in job_name_list:
         if job not in yesterdays_jobs:
             new_jobs.append(job)
-            
-    notify(new_jobs)
+
+    company_name = "Palantir"
+    notify(new_jobs, company_name=company_name, url = url)
 
 
 
     #Overwrite yesterday's jobs by writing ALL of today's jobs
-    with open("yesterdays_jobs.txt", "w") as f:
-        f.writelines(job_name_list)
+    with open("yesterdays_jobs.pkl", "wb") as f:
+        pkl.dump(job_name_list, f)
 
 
-def notify(new):
+def notify(new, company_name, url):
+    if len(new) == 0:
+        return
     
     # Email credentials
     smtp_server = 'smtp.gmail.com'  # For Gmail
@@ -117,7 +116,8 @@ def notify(new):
 
     # Email content
     subject = 'Palantir Jobs'
-    body = " ".join(new)
+    body = "\n ".join(new)
+    body = open("email_body.html", "r").read().format(len(new), company_name, url, company_name, "<br>".join(new))
 
     # Create the email
     msg = MIMEMultipart()
@@ -125,7 +125,7 @@ def notify(new):
     msg['To'] = receiver_email
     msg['Subject'] = subject
 
-    msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(body, 'html'))
 
     try:
         # Connect to the server and login
